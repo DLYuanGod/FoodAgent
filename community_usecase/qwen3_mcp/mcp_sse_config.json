@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "edgeone-pages-mcp-server": {
+      "command": "npx",
+      "args": ["edgeone-pages-mcp"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    }
+  }
+}
