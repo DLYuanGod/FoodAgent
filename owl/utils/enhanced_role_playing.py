@@ -504,6 +504,89 @@ def run_society(
     return answer, chat_history, token_info
 
 
+class Food4AllRolePlaying(OwlRolePlaying):
+    """Food4All Planner-Executor architecture for free food discovery.
+
+    Implements the dual-agent design from the Food4All paper (arXiv:2510.18289):
+    - Planner Agent (A_P): decomposes food access queries into subtasks
+    - Executor Agent (A_E): performs tool-based retrieval across heterogeneous sources
+    Output format: "Bank Name, ZIP: Item (serving, X kcal, Protein Yg, Fat Zg, Carbs Wg)"
+    """
+
+    def _construct_gaia_sys_msgs(self):  # noqa: D102
+        planner_system_prompt = f"""
+===== RULES OF PLANNER AGENT (Food4All) =====
+You are the Planner Agent in the Food4All multi-agent framework for real-time free food discovery.
+Never forget you are the Planner and I am the Executor. Never flip roles!
+
+Your role is to hierarchically decompose food access queries into structured subtasks and instruct the Executor Agent step by step.
+
+Goals for each query:
+1. Identify the target ZIP code and user context from the task.
+2. Instruct the Executor to search MULTIPLE heterogeneous data sources:
+   - Official directories: FoodPantries.org, Feeding America locator, 211 helpline, USDA food bank listings
+   - Community platforms: Reddit (r/foodbanks, r/homeless, local city subreddits), X/Twitter posts
+   - Web search: Google/DuckDuckGo for "[ZIP] free food bank pantry open"
+3. Instruct the Executor to retrieve food item lists for each identified food bank.
+4. Instruct the Executor to annotate each food item with USDA nutritional data.
+5. Verify geographic accuracy: food banks must be within or near the target ZIP code (use haversine distance).
+6. Verify no hallucinations: all returned food banks must be real, verifiable institutions.
+
+Required output format (instruct Executor to produce this exactly):
+Bank Name (ZIP_CODE):
+- Food Item (serving_size g): X kcal, Protein Yg, Fat Zg, Carbs Wg[, Vitamin/Mineral info]
+
+Example:
+St. Anthony's Dining Room (94102):
+- Vegetable Soup (1 cup, 240 mL): 100 kcal, Protein 3g, Fat 2g, Carbs 18g, Vitamin A 20% DV
+- Whole Wheat Bread (1 slice, 28 g): 70 kcal, Protein 4g, Fat 1g, Carbs 12g, Fiber 3g
+
+Instructions:
+- Give ONE instruction at a time in the format: `Instruction: [YOUR INSTRUCTION]`
+- Do NOT attempt to solve the task in a single step — break it into subtasks
+- Always verify the final answer for geographic validity, item accuracy, and nutritional correctness
+- When all goals are met, reply with only: TASK_DONE
+
+Overall task: <task>{self.task_prompt}</task>
+
+Now instruct me step by step to find free food resources. Do not add anything else other than your instruction!
+        """
+
+        executor_system_prompt = f"""
+===== RULES OF EXECUTOR AGENT (Food4All) =====
+You are the Executor Agent in the Food4All multi-agent framework. Your role is to perform tool-based actions to retrieve free food resources with verified nutritional annotations.
+Never forget you are the Executor and I am the Planner. Never flip roles!
+
+Key responsibilities:
+1. Search multiple data sources for free food resources near the target ZIP code:
+   - Official: FoodPantries.org, Feeding America (feedingamerica.org/find-your-local-foodbank), 211 directory
+   - Community: Reddit search for "[city/ZIP] food bank pantry free food", X/Twitter
+   - Web: DuckDuckGo/Google for "[ZIP code] free food bank pantry hours"
+2. For each identified food bank, retrieve its specific food items currently offered.
+3. Annotate each food item with USDA nutritional values: calories, protein (g), fat (g), carbohydrates (g).
+4. Verify geographic proximity: ensure food banks are actually near the target ZIP.
+5. Avoid hallucinating food banks or items not actually offered.
+
+Required output format for the final answer:
+Bank Name (ZIP_CODE):
+- Food Item (serving_size): X kcal, Protein Yg, Fat Zg, Carbs Wg
+
+Overall task: {self.task_prompt}
+
+When given an instruction, respond with:
+Solution: [YOUR_SOLUTION]
+Use available tools to execute each subtask. If one approach fails, try alternatives.
+        """
+
+        planner_sys_msg = BaseMessage.make_user_message(
+            role_name=self.user_role_name, content=planner_system_prompt
+        )
+        executor_sys_msg = BaseMessage.make_assistant_message(
+            role_name=self.assistant_role_name, content=executor_system_prompt
+        )
+        return planner_sys_msg, executor_sys_msg
+
+
 async def arun_society(
     society: OwlRolePlaying,
     round_limit: int = 15,

@@ -16,20 +16,16 @@ import pathlib
 from dotenv import load_dotenv
 from camel.models import ModelFactory
 from camel.toolkits import (
-    AudioAnalysisToolkit,
     CodeExecutionToolkit,
-    ExcelToolkit,
-    ImageAnalysisToolkit,
     SearchToolkit,
-    VideoAnalysisToolkit,
     BrowserToolkit,
     FileWriteToolkit,
+    DocumentProcessingToolkit,
 )
 from camel.types import ModelPlatformType, ModelType
 from camel.logger import set_log_level
-from camel.societies import RolePlaying
 
-from owl.utils import run_society, DocumentProcessingToolkit
+from owl.utils import run_society, Food4AllRolePlaying
 
 base_dir = pathlib.Path(__file__).parent.parent
 env_path = base_dir / "owl" / ".env"
@@ -38,24 +34,28 @@ load_dotenv(dotenv_path=str(env_path))
 set_log_level(level="DEBUG")
 
 
-def construct_society(question: str) -> RolePlaying:
-    r"""Construct a society of agents based on the given question.
+def construct_society(question: str) -> Food4AllRolePlaying:
+    r"""Construct a Food4All Planner-Executor society for free food discovery.
+
+    Implements the dual-agent architecture from the Food4All paper (arXiv:2510.18289):
+    - Planner Agent (A_P): hierarchical task decomposition
+    - Executor Agent (A_E): tool-based retrieval across heterogeneous data sources
 
     Args:
-        question (str): The task or question to be addressed by the society.
+        question (str): User query, typically "I live in [ZIP], where can I get
+            free food nearby? What nutrients are provided?"
 
     Returns:
-        RolePlaying: A configured society of agents ready to address the question.
+        Food4AllRolePlaying: Configured dual-agent society.
     """
-
     # Create models for different components
     models = {
-        "user": ModelFactory.create(
+        "planner": ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=ModelType.GPT_4O,
             model_config_dict={"temperature": 0},
         ),
-        "assistant": ModelFactory.create(
+        "executor": ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=ModelType.GPT_4O,
             model_config_dict={"temperature": 0},
@@ -70,16 +70,6 @@ def construct_society(question: str) -> RolePlaying:
             model_type=ModelType.GPT_4O,
             model_config_dict={"temperature": 0},
         ),
-        "video": ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI,
-            model_type=ModelType.GPT_4O,
-            model_config_dict={"temperature": 0},
-        ),
-        "image": ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI,
-            model_type=ModelType.GPT_4O,
-            model_config_dict={"temperature": 0},
-        ),
         "document": ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=ModelType.GPT_4O,
@@ -87,51 +77,48 @@ def construct_society(question: str) -> RolePlaying:
         ),
     }
 
-    # Configure toolkits
+    # Executor tools — focus on food bank discovery (paper Figure 2)
     tools = [
         *BrowserToolkit(
-            headless=False,  # Set to True for headless mode (e.g., on remote servers)
+            headless=True,  # headless for server deployment
             web_agent_model=models["browsing"],
             planning_agent_model=models["planning"],
         ).get_tools(),
-        *VideoAnalysisToolkit(model=models["video"]).get_tools(),
-        *AudioAnalysisToolkit().get_tools(),  # This requires OpenAI Key
         *CodeExecutionToolkit(sandbox="subprocess", verbose=True).get_tools(),
-        *ImageAnalysisToolkit(model=models["image"]).get_tools(),
         SearchToolkit().search_duckduckgo,
-        SearchToolkit().search_google,  # Comment this out if you don't have google search
         SearchToolkit().search_wiki,
-        *ExcelToolkit().get_tools(),
         *DocumentProcessingToolkit(model=models["document"]).get_tools(),
         *FileWriteToolkit(output_dir="./").get_tools(),
     ]
 
-    # Configure agent roles and parameters
-    user_agent_kwargs = {"model": models["user"]}
-    assistant_agent_kwargs = {"model": models["assistant"], "tools": tools}
+    planner_agent_kwargs = {"model": models["planner"]}
+    executor_agent_kwargs = {"model": models["executor"], "tools": tools}
 
-    # Configure task parameters
     task_kwargs = {
         "task_prompt": question,
         "with_task_specify": False,
     }
 
-    # Create and return the society
-    society = RolePlaying(
+    # Food4AllRolePlaying uses food-specific Planner/Executor system prompts
+    society = Food4AllRolePlaying(
         **task_kwargs,
-        user_role_name="user",
-        user_agent_kwargs=user_agent_kwargs,
-        assistant_role_name="assistant",
-        assistant_agent_kwargs=assistant_agent_kwargs,
+        user_role_name="Planner",
+        user_agent_kwargs=planner_agent_kwargs,
+        assistant_role_name="Executor",
+        assistant_agent_kwargs=executor_agent_kwargs,
     )
 
     return society
 
 
 def main():
-    r"""Main function to run the OWL system with an example question."""
-    # Default research question
-    default_task = "Open Brave search, summarize the github stars, fork counts, etc. of camel-ai's camel framework, and write the numbers into a python file using the plot package, save it locally, and run the generated python file. Note: You have been provided with the necessary tools to complete this task."
+    r"""Main function to run Food4All with a default food access query."""
+    # Default food access query (paper example, Section 5.5)
+    default_task = (
+        "I live in 94102, where can I get free food nearby? "
+        "What nutrients are provided? Please list specific food items with "
+        "their nutritional information (calories, protein, fat, carbohydrates)."
+    )
 
     # Override default task if command line argument is provided
     task = sys.argv[1] if len(sys.argv) > 1 else default_task

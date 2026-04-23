@@ -43,10 +43,10 @@ class RewardComponents:
     def aggregate(self, weights: Dict[str, float]) -> float:
         """Compute weighted sum of reward components."""
         return (
-            weights.get('geo', 0.25) * self.r_geo +
-            weights.get('items', 0.25) * self.r_items +
-            weights.get('nutr', 0.25) * self.r_nutr +
-            weights.get('hall', 0.25) * self.r_hall
+            weights.get('geo', 0.3) * self.r_geo +
+            weights.get('items', 0.3) * self.r_items +
+            weights.get('nutr', 0.3) * self.r_nutr +
+            weights.get('hall', 0.1) * self.r_hall
         )
 
 
@@ -58,7 +58,7 @@ class RewardFunction:
         verified_registry: Optional[Dict[str, FoodBankEntry]] = None,
         usda_database: Optional[Dict[str, Dict[str, float]]] = None,
         weights: Optional[Dict[str, float]] = None,
-        lambda_hall: float = 0.5,
+        lambda_hall: float = 0.4,
     ):
         """
         Initialize reward function.
@@ -71,7 +71,8 @@ class RewardFunction:
         """
         self.verified_registry = verified_registry or {}
         self.usda_database = usda_database or {}
-        self.weights = weights or {'geo': 0.25, 'items': 0.25, 'nutr': 0.25, 'hall': 0.25}
+        # Paper Table 2: (w1, w2, w3, w4) = (0.3, 0.3, 0.3, 0.1)
+        self.weights = weights or {'geo': 0.3, 'items': 0.3, 'nutr': 0.3, 'hall': 0.1}
         self.lambda_hall = lambda_hall
 
     @staticmethod
@@ -154,10 +155,10 @@ class RewardFunction:
                 )
             distances.append(dist)
 
-        # Average distance penalty (exponential decay)
-        # Closer = higher reward
+        # Geographic penalty in [-1, 0]: closer = less penalty (paper Appendix C)
+        # r_geo = exp(-d/50) - 1; at d=0: 0, at d->inf: -1
         avg_distance = np.mean(distances)
-        reward = np.exp(-avg_distance / 50.0)  # 50km scale
+        reward = np.exp(-avg_distance / 50.0) - 1.0
         return float(reward)
 
     def compute_items_reward(
@@ -265,11 +266,10 @@ class RewardFunction:
             if bank.name in self.verified_registry
         )
 
-        # Fraction of verified banks
+        # Hallucination penalty in [-2, 0] (paper Appendix C)
+        # r_hall = -2 * (1 - verification_rate); 0 = all verified, -2 = all hallucinated
         verification_rate = verified_count / len(predicted_banks)
-
-        # Return as reward (1.0 = all verified, 0.0 = all hallucinated)
-        return verification_rate
+        return -2.0 * (1.0 - verification_rate)
 
     def compute_reward(
         self,

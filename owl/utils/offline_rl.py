@@ -50,7 +50,7 @@ class OfflineRLTrainer:
     def __init__(
         self,
         reward_function: RewardFunction,
-        beta: float = 0.1,
+        beta: float = 0.2,  # Paper Table 2: β = 0.2
         learning_rate: float = 1e-5,
         batch_size: int = 4,
     ):

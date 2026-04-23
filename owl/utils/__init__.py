@@ -16,6 +16,7 @@ from .common import extract_pattern
 from .enhanced_role_playing import (
     OwlRolePlaying,
     OwlGAIARolePlaying,
+    Food4AllRolePlaying,
     run_society,
     arun_society,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "extract_pattern",
     "OwlRolePlaying",
     "OwlGAIARolePlaying",
+    "Food4AllRolePlaying",
     "run_society",
     "arun_society",
     "GAIABenchmark",
